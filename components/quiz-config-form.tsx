@@ -195,7 +195,7 @@ export function QuizConfigForm({ onNext }: QuizConfigFormProps) {
             <span>Source Material</span>
           </CardTitle>
           <CardDescription>
-            Provide your study notes or content that the AI will use to generate questions
+            Provide your study notes or content that the AI will use to generate questions. The more detailed, the better!
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
