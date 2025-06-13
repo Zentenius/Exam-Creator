@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Upload, FileText, Settings, Sparkles, Download } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
+import { LoadingScreen } from "@/components/loading-screen"
 
 interface QuizConfigFormProps {
   onNext: () => void
@@ -143,8 +144,22 @@ export function QuizConfigForm({ onNext }: QuizConfigFormProps) {
     }
   }
 
+  // Add this to get the loading state from context
+  const { state } = useQuiz()
+
+  // Replace the return statement
+  if (state.isGenerating) {
+    return (
+      <LoadingScreen
+        title="Generating Your Quiz"
+        description={`Creating ${Object.values(formData.questionCounts).reduce((sum, count) => sum + count, 0)} questions about ${formData.subject}...`}
+      />
+    )
+  }
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {/* Rest of the form content remains the same */}
       {/* Subject and Difficulty */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
@@ -195,7 +210,7 @@ export function QuizConfigForm({ onNext }: QuizConfigFormProps) {
             <span>Source Material</span>
           </CardTitle>
           <CardDescription>
-            Provide your study notes or content that the AI will use to generate questions. The more detailed, the better!
+            Provide your study notes or content that the AI will use to generate questions
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
