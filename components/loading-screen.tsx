@@ -1,7 +1,8 @@
 "use client"
 
 import { Card, CardContent } from "@/components/ui/card"
-import { Brain, Sparkles } from "lucide-react"
+import { Brain, Sparkles, CheckCircle } from "lucide-react"
+import { useState, useEffect } from "react"
 
 interface LoadingScreenProps {
   title?: string
@@ -12,6 +13,35 @@ export function LoadingScreen({
   title = "Generating Your Quiz",
   description = "Our AI is creating personalized questions based on your content...",
 }: LoadingScreenProps) {
+  const [currentStep, setCurrentStep] = useState(0)
+  const [completedSteps, setCompletedSteps] = useState<number[]>([])
+
+  const steps = [
+    "Analyzing content...",
+    "Generating Multiple Choice questions...",
+    "Creating True/False questions...",
+    "Building Matching questions...",
+    "Crafting Essay questions...",
+    "Finalizing quiz...",
+  ]
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentStep((prev) => {
+        const next = (prev + 1) % steps.length
+        if (next === 0) {
+          // Reset when we complete a cycle
+          setCompletedSteps([])
+        } else {
+          setCompletedSteps((completed) => [...completed, prev])
+        }
+        return next
+      })
+    }, 2000) // Change step every 2 seconds
+
+    return () => clearInterval(interval)
+  }, [steps.length])
+
   return (
     <div className="flex items-center justify-center min-h-[400px]">
       <Card className="w-full max-w-md">
@@ -39,18 +69,34 @@ export function LoadingScreen({
 
           {/* Progress Steps */}
           <div className="w-full space-y-2">
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>Analyzing content...</span>
-              <span>✓</span>
-            </div>
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>Generating questions...</span>
-              <div className="animate-spin w-3 h-3 border border-current border-t-transparent rounded-full"></div>
-            </div>
-            <div className="flex justify-between text-xs text-muted-foreground opacity-50">
-              <span>Finalizing quiz...</span>
-              <span>⏳</span>
-            </div>
+            {steps.map((step, index) => (
+              <div key={index} className="flex justify-between text-xs">
+                <span
+                  className={
+                    completedSteps.includes(index)
+                      ? "text-green-600"
+                      : index === currentStep
+                        ? "text-primary font-medium"
+                        : "text-muted-foreground opacity-50"
+                  }
+                >
+                  {step}
+                </span>
+                <span>
+                  {completedSteps.includes(index) ? (
+                    <CheckCircle className="w-3 h-3 text-green-600" />
+                  ) : index === currentStep ? (
+                    <div className="animate-spin w-3 h-3 border border-current border-t-transparent rounded-full"></div>
+                  ) : (
+                    <span className="text-muted-foreground opacity-50">⏳</span>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <div className="text-xs text-muted-foreground text-center">
+            Generating questions in batches for better reliability...
           </div>
         </CardContent>
       </Card>
