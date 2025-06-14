@@ -63,55 +63,63 @@ async function generateQuestionBatch(
   batchIndex: number,
   totalBatches: number,
   existingQuestions: any[] = [],
-): Promise<any[]> {
-  if (count === 0) return []
+): Promise<{ questions: any[]; error?: string }> {
+  if (count === 0) return { questions: [] }
 
-  // Get different content chunk for each batch to ensure variety
-  const contentChunk = getContentChunk(notes, batchIndex, Math.max(totalBatches, 4))
+  console.log(`🔄 Starting ${type} batch: ${count} questions, batch ${batchIndex + 1}/${totalBatches}`)
 
-  // Extract specific topics from this chunk
-  const topics = extractTopics(contentChunk, Math.max(count * 2, 6))
-  const topicsText =
-    topics.length > 0
-      ? `\n\nFocus on these specific topics from the content:\n${topics.map((t, i) => `${i + 1}. ${t}`).join("\n")}`
-      : ""
+  try {
+    // Get different content chunk for each batch to ensure variety
+    const contentChunk = getContentChunk(notes, batchIndex, Math.max(totalBatches, 4))
+    console.log(`📄 Using content chunk ${batchIndex + 1}: ${contentChunk.length} characters`)
 
-  // Create list of existing questions to avoid duplicates
-  const existingQuestionsText =
-    existingQuestions.length > 0
-      ? `\n\nIMPORTANT: Do NOT create questions similar to these existing ones:\n${existingQuestions
-          .map((q) => `- ${q.question}`)
-          .slice(-10)
-          .join("\n")}`
-      : ""
+    // Extract specific topics from this chunk
+    const topics = extractTopics(contentChunk, Math.max(count * 2, 6))
+    const topicsText =
+      topics.length > 0
+        ? `\n\nFocus on these specific topics from the content:\n${topics.map((t, i) => `${i + 1}. ${t}`).join("\n")}`
+        : ""
 
-  const typePrompts = {
-    MCQ: `Generate exactly ${count} UNIQUE Multiple Choice Questions with 4 options each. 
-    - Each question must cover DIFFERENT concepts/topics
-    - Vary the question formats (What is, Which of the following, How does, Why does, etc.)
-    - Focus on different aspects: definitions, processes, comparisons, applications
-    - Make sure no two questions test the same knowledge`,
+    // Create list of existing questions to avoid duplicates
+    const existingQuestionsText =
+      existingQuestions.length > 0
+        ? `\n\nIMPORTANT: Do NOT create questions similar to these existing ones:\n${existingQuestions
+            .map((q) => `- ${q.question}`)
+            .slice(-10)
+            .join("\n")}`
+        : ""
 
-    TF: `Generate exactly ${count} UNIQUE True/False Questions.
-    - Each question must test DIFFERENT facts or concepts
-    - Vary between positive and negative statements
-    - Cover different topics from the content
-    - Mix obvious and subtle true/false scenarios`,
+    const typePrompts = {
+      MCQ: `Generate exactly ${count} UNIQUE Multiple Choice Questions with 4 options each. 
+      - Each question must cover DIFFERENT concepts/topics
+      - Vary the question formats (What is, Which of the following, How does, Why does, etc.)
+      - Focus on different aspects: definitions, processes, comparisons, applications
+      - Make sure no two questions test the same knowledge`,
 
-    MATCHING: `Generate exactly ${count} UNIQUE Matching Questions.
-    - Each matching set must cover DIFFERENT topic areas
-    - Use varied categories: terms-definitions, causes-effects, problems-solutions, etc.
-    - Ensure each matching question has a distinct theme
-    - 4 items per side with clear, unambiguous matches`,
+      TF: `Generate exactly ${count} UNIQUE True/False Questions.
+      - Each question must test DIFFERENT facts or concepts
+      - Vary between positive and negative statements
+      - Cover different topics from the content
+      - Mix obvious and subtle true/false scenarios
+      - Answer must be exactly "True" or "False"`,
 
-    ESSAY: `Generate exactly ${count} UNIQUE Essay Questions.
-    - Each question must explore DIFFERENT aspects or topics
-    - Vary question types: explain, compare, analyze, evaluate, describe
-    - Cover different complexity levels within the difficulty
-    - Focus on different sections of the content`,
-  }
+      MATCHING: `Generate exactly ${count} UNIQUE Matching Questions.
+      - Each matching set must cover DIFFERENT topic areas
+      - Use varied categories: terms-definitions, causes-effects, problems-solutions, etc.
+      - Ensure each matching question has a distinct theme
+      - 4 items per side with clear, unambiguous matches`,
 
-  const prompt = `Generate exactly ${count} ${type} questions about "${subject}" at ${difficulty} difficulty level.
+      ESSAY: `Generate exactly ${count} UNIQUE Essay Questions.
+      - Each question must explore DIFFERENT aspects or topics
+      - Vary question types: explain, compare, analyze, evaluate, describe
+      - Cover different complexity levels within the difficulty
+      - Focus on different sections of the content
+      - Provide comprehensive model answers
+      - Ensure that each question is simple and clear, allowing for in-depth responses`,
+
+    }
+
+    const prompt = `Generate exactly ${count} ${type} questions about "${subject}" at ${difficulty} difficulty level.
 
 CONTENT SECTION ${batchIndex + 1}:
 ${contentChunk}
@@ -160,19 +168,40 @@ For MATCHING questions, use this exact format with DIVERSE topics:
 
 DIVERSITY CHECK: Before finalizing, ensure each question covers a different concept or aspect of the content.`
 
-  try {
+    console.log(`🤖 Sending request to AI for ${count} ${type} questions...`)
+
     const { object } = await generateObject({
       model: mistral("mistral-small-2503"),
       schema: QuestionBatchSchema,
       prompt: prompt,
-      temperature: 0.8, // Increased temperature for more variety
+      temperature: 0.8,
       maxTokens: 2000,
     })
 
-    return object.questions || []
+    const questions = object.questions || []
+    console.log(`✅ AI returned ${questions.length} ${type} questions`)
+
+    // Validate each question
+    const validQuestions = questions.filter((q, index) => {
+      const isValid = q.id && q.type && q.question && q.answer && q.difficulty
+      if (!isValid) {
+        console.log(`⚠️ Invalid ${type} question ${index + 1}:`, {
+          hasId: !!q.id,
+          hasType: !!q.type,
+          hasQuestion: !!q.question,
+          hasAnswer: !!q.answer,
+          hasDifficulty: !!q.difficulty,
+        })
+      }
+      return isValid
+    })
+
+    console.log(`✅ ${validQuestions.length}/${questions.length} ${type} questions are valid`)
+
+    return { questions: validQuestions }
   } catch (error) {
-    console.error(`Failed to generate ${type} questions:`, error)
-    return []
+    console.error(`❌ Error generating ${type} questions:`, error)
+    return { questions: [], error: `Failed to generate ${type} questions: ${error}` }
   }
 }
 
@@ -182,6 +211,14 @@ export async function POST(request: NextRequest) {
 
     // Calculate total questions needed
     const totalQuestions = Object.values(questionCounts).reduce((sum: number, count: any) => sum + count, 0)
+
+    console.log(`🚀 Starting quiz generation:`, {
+      subject,
+      difficulty,
+      totalQuestions,
+      questionCounts,
+      contentLength: notes.length,
+    })
 
     if (totalQuestions === 0) {
       return NextResponse.json({ error: "No questions requested" }, { status: 400 })
@@ -198,9 +235,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log(`Starting generation of ${totalQuestions} questions using full content (${notes.length} characters)...`)
-
     const allQuestions: any[] = []
+    const errors: string[] = []
     let currentId = 1
     let globalBatchIndex = 0
 
@@ -212,56 +248,87 @@ export async function POST(request: NextRequest) {
       { type: "ESSAY", count: questionCounts.ESSAY },
     ]
 
+    console.log(
+      `📋 Question types to generate:`,
+      questionTypes.filter((qt) => qt.count > 0),
+    )
+
     for (const { type, count } of questionTypes) {
       if (count > 0) {
-        console.log(`Generating ${count} ${type} questions...`)
+        console.log(`\n🎯 === GENERATING ${count} ${type} QUESTIONS ===`)
 
         // For larger batches, split into smaller chunks
-        const maxBatchSize = type === "MATCHING" ? 2 : type === "ESSAY" ? 3 : 4 // Reduced batch sizes for more variety
+        const maxBatchSize = type === "MATCHING" ? 2 : type === "ESSAY" ? 2 : 3 // Smaller batches for reliability
         const batches = Math.ceil(count / maxBatchSize)
+
+        console.log(`📦 Splitting into ${batches} batches (max ${maxBatchSize} per batch)`)
 
         for (let batch = 0; batch < batches; batch++) {
           const batchStart = batch * maxBatchSize
           const batchCount = Math.min(maxBatchSize, count - batchStart)
 
-          console.log(
-            `  Batch ${batch + 1}/${batches}: ${batchCount} questions (using content section ${globalBatchIndex + 1})`,
-          )
+          console.log(`\n📦 Batch ${batch + 1}/${batches}: Generating ${batchCount} ${type} questions...`)
 
-          const batchQuestions = await generateQuestionBatch(
+          const result = await generateQuestionBatch(
             type,
             batchCount,
             subject,
             difficulty,
-            notes, // Pass full notes, function will extract relevant chunk
+            notes,
             currentId,
             globalBatchIndex,
-            totalQuestions, // Total batches for content distribution
-            allQuestions, // Pass existing questions to avoid duplicates
+            totalQuestions,
+            allQuestions,
           )
 
-          if (batchQuestions.length > 0) {
+          if (result.error) {
+            console.error(`❌ Batch ${batch + 1} failed:`, result.error)
+            errors.push(`${type} batch ${batch + 1}: ${result.error}`)
+          }
+
+          if (result.questions.length > 0) {
             // Ensure proper ID assignment
-            batchQuestions.forEach((q, index) => {
+            result.questions.forEach((q, index) => {
               q.id = `q${currentId + index}`
               q.difficulty = difficulty
             })
 
-            allQuestions.push(...batchQuestions)
-            currentId += batchQuestions.length
-            console.log(`  ✓ Generated ${batchQuestions.length} questions from content section ${globalBatchIndex + 1}`)
+            allQuestions.push(...result.questions)
+            currentId += result.questions.length
+            console.log(`✅ Added ${result.questions.length} ${type} questions (total: ${allQuestions.length})`)
           } else {
-            console.log(`  ⚠ Failed to generate batch ${batch + 1}`)
+            console.log(`⚠️ Batch ${batch + 1} produced no valid questions`)
           }
 
           globalBatchIndex++
 
-          // Small delay between batches to prevent rate limiting
+          // Delay between batches to prevent rate limiting
           if (batch < batches - 1) {
-            await new Promise((resolve) => setTimeout(resolve, 800)) // Slightly longer delay
+            console.log(`⏳ Waiting 1 second before next batch...`)
+            await new Promise((resolve) => setTimeout(resolve, 1000))
           }
         }
+
+        console.log(`🏁 Completed ${type}: ${allQuestions.filter((q) => q.type === type).length}/${count} questions`)
+      } else {
+        console.log(`⏭️ Skipping ${type} (count: 0)`)
       }
+    }
+
+    console.log(`\n🎉 GENERATION COMPLETE:`)
+    console.log(`📊 Total questions generated: ${allQuestions.length}/${totalQuestions}`)
+    console.log(`📈 Success rate: ${Math.round((allQuestions.length / totalQuestions) * 100)}%`)
+
+    // Log breakdown by type
+    const breakdown = questionTypes.map((qt) => ({
+      type: qt.type,
+      requested: qt.count,
+      generated: allQuestions.filter((q) => q.type === qt.type).length,
+    }))
+    console.log(`📋 Breakdown:`, breakdown)
+
+    if (errors.length > 0) {
+      console.log(`⚠️ Errors encountered:`, errors)
     }
 
     // Validate final results
@@ -269,6 +336,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: "Failed to generate any questions. Please try again with different content or fewer questions.",
+          details: errors,
         },
         { status: 500 },
       )
@@ -283,6 +351,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: "No valid questions were generated. Please try again.",
+          details: errors,
         },
         { status: 500 },
       )
@@ -292,12 +361,10 @@ export async function POST(request: NextRequest) {
     const questionTexts = validQuestions.map((q) => q.question.toLowerCase())
     const uniqueTexts = new Set(questionTexts)
     if (uniqueTexts.size < questionTexts.length) {
-      console.log(`⚠ Warning: Detected ${questionTexts.length - uniqueTexts.size} potential duplicate questions`)
+      console.log(`⚠️ Warning: Detected ${questionTexts.length - uniqueTexts.size} potential duplicate questions`)
     }
 
-    console.log(
-      `✅ Successfully generated ${validQuestions.length}/${totalQuestions} unique questions using full content`,
-    )
+    console.log(`✅ Final result: ${validQuestions.length} valid questions ready`)
 
     return NextResponse.json({
       questions: validQuestions,
@@ -305,12 +372,15 @@ export async function POST(request: NextRequest) {
       requested: totalQuestions,
       contentLength: notes.length,
       sectionsUsed: globalBatchIndex,
+      breakdown: breakdown,
+      errors: errors.length > 0 ? errors : undefined,
     })
   } catch (error) {
-    console.error("Error in question generation:", error)
+    console.error("❌ Critical error in question generation:", error)
     return NextResponse.json(
       {
         error: "Failed to generate questions. Please try again.",
+        details: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 },
     )
