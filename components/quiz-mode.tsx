@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useQuiz } from "@/contexts/quiz-context"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -9,7 +9,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
-import { ArrowLeft, ArrowRight, CheckCircle, Clock, Menu, X, LayoutGrid, List } from "lucide-react"
+import { ArrowLeft, ArrowRight, CheckCircle, Clock, Menu, X } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 import { MatchingQuestion } from "./matching-question"
 
@@ -26,8 +26,6 @@ export function QuizMode({ onBack, onComplete }: QuizModeProps) {
   const [startTime] = useState<Date>(new Date())
   const [timeElapsed, setTimeElapsed] = useState<number>(0)
   const [showNavigationPanel, setShowNavigationPanel] = useState(false)
-  const [fullPageMode, setFullPageMode] = useState(false)
-  const [answers, setAnswers] = useState<Record<string, string>>({})
 
   const currentQuestion = questions[currentQuestionIndex]
   const isLastQuestion = currentQuestionIndex === questions.length - 1
@@ -40,17 +38,6 @@ export function QuizMode({ onBack, onComplete }: QuizModeProps) {
 
     return () => clearInterval(timer)
   }, [startTime])
-
-  useEffect(() => {
-    // Load existing answers
-    const existingAnswers: Record<string, string> = {}
-    questions.forEach((q) => {
-      if (q.userAnswer) {
-        existingAnswers[q.id] = q.userAnswer as string
-      }
-    })
-    setAnswers(existingAnswers)
-  }, [questions])
 
   useEffect(() => {
     // Load existing answer when navigating between questions
@@ -66,13 +53,15 @@ export function QuizMode({ onBack, onComplete }: QuizModeProps) {
     }
   }, [currentQuestion])
 
-  const handleAnswerChange = (questionId: string, answer: string) => {
-    setAnswers((prev) => ({ ...prev, [questionId]: answer }))
-    dispatch({
-      type: "SET_USER_ANSWER",
-      payload: { questionId, answer },
-    })
-  }
+  const handleAnswerChange = useCallback(
+    (questionId: string, answer: string) => {
+      dispatch({
+        type: "SET_USER_ANSWER",
+        payload: { questionId, answer },
+      })
+    },
+    [dispatch],
+  )
 
   const handleAnswerSubmit = () => {
     const answer = currentQuestion.type === "ESSAY" ? essayAnswer : selectedAnswer
@@ -100,26 +89,6 @@ export function QuizMode({ onBack, onComplete }: QuizModeProps) {
       setSelectedAnswer("")
       setEssayAnswer("")
     }
-  }
-
-  const handleCompleteAllQuestions = () => {
-    const unansweredQuestions = questions.filter((q) => !answers[q.id] || !answers[q.id].trim())
-
-    if (unansweredQuestions.length > 0) {
-      toast({
-        title: "Incomplete questions",
-        description: `Please answer all questions. ${unansweredQuestions.length} questions remaining.`,
-        variant: "destructive",
-      })
-      return
-    }
-
-    dispatch({ type: "COMPLETE_QUIZ" })
-    onComplete()
-    toast({
-      title: "Quiz completed!",
-      description: "Great job! You've answered all questions.",
-    })
   }
 
   const handlePreviousQuestion = () => {
@@ -168,156 +137,9 @@ export function QuizMode({ onBack, onComplete }: QuizModeProps) {
   }
 
   const isQuestionAnswered = (questionId: string) => {
-    return answers[questionId] && answers[questionId].trim() !== ""
+    const question = questions.find((q) => q.id === questionId)
+    return question?.userAnswer && question.userAnswer.toString().trim() !== ""
   }
-
-  const renderSingleQuestion = (question: any, index: number, isCurrentQuestion = false) => (
-    <Card key={question.id} className={isCurrentQuestion ? "ring-2 ring-primary" : ""}>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <Badge className={getQuestionTypeColor(question.type)}>
-              {question.type === "MCQ"
-                ? "Multiple Choice"
-                : question.type === "TF"
-                  ? "True/False"
-                  : question.type === "MATCHING"
-                    ? "Matching"
-                    : "Essay"}
-            </Badge>
-            <Badge className={getDifficultyColor(question.difficulty)}>{question.difficulty}</Badge>
-            <span className="text-sm text-muted-foreground">#{index + 1}</span>
-          </div>
-          {isQuestionAnswered(question.id) && (
-            <Badge className="bg-green-100 text-green-800">
-              <CheckCircle className="w-3 h-3 mr-1" />
-              Answered
-            </Badge>
-          )}
-        </div>
-        <CardTitle className="text-lg">{question.question}</CardTitle>
-      </CardHeader>
-
-      <CardContent className="space-y-4">
-        {/* Multiple Choice Questions */}
-        {question.type === "MCQ" && question.options && (
-          <RadioGroup
-            value={isCurrentQuestion ? selectedAnswer : answers[question.id] || ""}
-            onValueChange={(value) => {
-              if (isCurrentQuestion) {
-                setSelectedAnswer(value)
-              } else {
-                handleAnswerChange(question.id, value)
-              }
-            }}
-          >
-            <div className="space-y-3">
-              {question.options.map((option: string, optIndex: number) => (
-                <div key={optIndex} className="flex items-center space-x-2">
-                  <RadioGroupItem value={option} id={`${question.id}-option-${optIndex}`} />
-                  <Label
-                    htmlFor={`${question.id}-option-${optIndex}`}
-                    className="flex-1 cursor-pointer p-3 rounded border hover:bg-gray-50 transition-colors"
-                  >
-                    <span className="font-medium mr-2">{String.fromCharCode(65 + optIndex)}.</span>
-                    {option}
-                  </Label>
-                </div>
-              ))}
-            </div>
-          </RadioGroup>
-        )}
-
-        {/* True/False Questions */}
-        {question.type === "TF" && (
-          <RadioGroup
-            value={isCurrentQuestion ? selectedAnswer : answers[question.id] || ""}
-            onValueChange={(value) => {
-              if (isCurrentQuestion) {
-                setSelectedAnswer(value)
-              } else {
-                handleAnswerChange(question.id, value)
-              }
-            }}
-          >
-            <div className="space-y-3">
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="True" id={`${question.id}-true`} />
-                <Label
-                  htmlFor={`${question.id}-true`}
-                  className="flex-1 cursor-pointer p-3 rounded border hover:bg-gray-50 transition-colors"
-                >
-                  True
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="False" id={`${question.id}-false`} />
-                <Label
-                  htmlFor={`${question.id}-false`}
-                  className="flex-1 cursor-pointer p-3 rounded border hover:bg-gray-50 transition-colors"
-                >
-                  False
-                </Label>
-              </div>
-            </div>
-          </RadioGroup>
-        )}
-
-        {/* Essay Questions */}
-        {question.type === "ESSAY" && (
-          <div className="space-y-2">
-            <Label htmlFor={`${question.id}-essay`}>Your Answer:</Label>
-            <Textarea
-              id={`${question.id}-essay`}
-              placeholder="Write your detailed answer here..."
-              value={isCurrentQuestion ? essayAnswer : answers[question.id] || ""}
-              onChange={(e) => {
-                if (isCurrentQuestion) {
-                  setEssayAnswer(e.target.value)
-                } else {
-                  handleAnswerChange(question.id, e.target.value)
-                }
-              }}
-              className="min-h-[150px]"
-            />
-          </div>
-        )}
-
-        {/* Matching Questions */}
-        {question.type === "MATCHING" && (
-          <MatchingQuestion
-            question=""
-            leftItems={question.leftItems || []}
-            rightItems={question.rightItems || []}
-            correctMatches={question.correctMatches || {}}
-            onAnswerChange={(matches) => {
-              const matchString = Object.entries(matches)
-                .map(([right, left]) => `${left}-${right}`)
-                .join(", ")
-              if (isCurrentQuestion) {
-                setSelectedAnswer(matchString)
-              } else {
-                handleAnswerChange(question.id, matchString)
-              }
-            }}
-            userAnswer={
-              (isCurrentQuestion ? selectedAnswer : answers[question.id])
-                ? Object.fromEntries(
-                    ((isCurrentQuestion ? selectedAnswer : answers[question.id]) || "")
-                      .split(", ")
-                      .map((pair) => {
-                        const [left, right] = pair.split("-")
-                        return [right, left]
-                      })
-                      .filter(([right, left]) => right && left),
-                  )
-                : {}
-            }
-          />
-        )}
-      </CardContent>
-    </Card>
-  )
 
   if (!currentQuestion) {
     return (
@@ -392,85 +214,174 @@ export function QuizMode({ onBack, onComplete }: QuizModeProps) {
           </div>
 
           <div className="flex items-center space-x-2">
-            <Button variant="outline" size="sm" onClick={() => setFullPageMode(!fullPageMode)}>
-              {fullPageMode ? <List className="w-4 h-4 mr-2" /> : <LayoutGrid className="w-4 h-4 mr-2" />}
-              {fullPageMode ? "Single Question" : "Full Page"}
-            </Button>
-
             <Button variant="outline" size="sm" onClick={() => setShowNavigationPanel(true)}>
               <Menu className="w-4 h-4 mr-2" />
               Questions
             </Button>
 
-            {!fullPageMode && (
-              <div className="text-sm text-muted-foreground">
-                Question {currentQuestionIndex + 1} of {questions.length}
-              </div>
-            )}
+            <div className="text-sm text-muted-foreground">
+              Question {currentQuestionIndex + 1} of {questions.length}
+            </div>
           </div>
         </div>
 
         {/* Progress Bar */}
-        {!fullPageMode && (
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span>Progress</span>
-              <span>{Math.round(progress)}%</span>
-            </div>
-            <Progress value={progress} className="w-full" />
+        <div className="space-y-2">
+          <div className="flex justify-between text-sm">
+            <span>Progress</span>
+            <span>{Math.round(progress)}%</span>
           </div>
-        )}
+          <Progress value={progress} className="w-full" />
+        </div>
 
-        {/* Full Page Mode */}
-        {fullPageMode ? (
-          <div className="space-y-6">
+        {/* Current Question */}
+        <Card className="ring-2 ring-primary">
+          <CardHeader>
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold">All Questions</h2>
-              <div className="text-sm text-muted-foreground">
-                {Object.keys(answers).filter((id) => answers[id] && answers[id].trim()).length} of {questions.length}{" "}
-                answered
+              <div className="flex items-center space-x-2">
+                <Badge className={getQuestionTypeColor(currentQuestion.type)}>
+                  {currentQuestion.type === "MCQ"
+                    ? "Multiple Choice"
+                    : currentQuestion.type === "TF"
+                      ? "True/False"
+                      : currentQuestion.type === "MATCHING"
+                        ? "Matching"
+                        : "Essay"}
+                </Badge>
+                <Badge className={getDifficultyColor(currentQuestion.difficulty)}>{currentQuestion.difficulty}</Badge>
+                <span className="text-sm text-muted-foreground">#{currentQuestionIndex + 1}</span>
+              </div>
+              <div className="flex items-center space-x-1">
+                {questions.slice(0, currentQuestionIndex + 1).map((_, index) => (
+                  <div
+                    key={index}
+                    className={`w-2 h-2 rounded-full ${
+                      index < currentQuestionIndex
+                        ? "bg-green-500"
+                        : index === currentQuestionIndex
+                          ? "bg-blue-500"
+                          : "bg-gray-300"
+                    }`}
+                  />
+                ))}
               </div>
             </div>
+            <CardTitle className="text-lg">{currentQuestion.question}</CardTitle>
+          </CardHeader>
 
-            <div className="space-y-6">
-              {questions.map((question, index) => renderSingleQuestion(question, index, false))}
-            </div>
+          <CardContent className="space-y-4">
+            {/* Multiple Choice Questions */}
+            {currentQuestion.type === "MCQ" && currentQuestion.options && (
+              <RadioGroup value={selectedAnswer} onValueChange={setSelectedAnswer}>
+                <div className="space-y-3">
+                  {currentQuestion.options.map((option, index) => (
+                    <div key={index} className="flex items-center space-x-2">
+                      <RadioGroupItem value={option} id={`option-${index}`} />
+                      <Label
+                        htmlFor={`option-${index}`}
+                        className="flex-1 cursor-pointer p-3 rounded border hover:bg-gray-50 transition-colors"
+                      >
+                        <span className="font-medium mr-2">{String.fromCharCode(65 + index)}.</span>
+                        {option}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+              </RadioGroup>
+            )}
 
-            <div className="flex justify-center">
-              <Button onClick={handleCompleteAllQuestions} size="lg">
+            {/* True/False Questions */}
+            {currentQuestion.type === "TF" && (
+              <RadioGroup value={selectedAnswer} onValueChange={setSelectedAnswer}>
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="True" id="true" />
+                    <Label
+                      htmlFor="true"
+                      className="flex-1 cursor-pointer p-3 rounded border hover:bg-gray-50 transition-colors"
+                    >
+                      True
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="False" id="false" />
+                    <Label
+                      htmlFor="false"
+                      className="flex-1 cursor-pointer p-3 rounded border hover:bg-gray-50 transition-colors"
+                    >
+                      False
+                    </Label>
+                  </div>
+                </div>
+              </RadioGroup>
+            )}
+
+            {/* Essay Questions */}
+            {currentQuestion.type === "ESSAY" && (
+              <div className="space-y-2">
+                <Label htmlFor="essay-answer">Your Answer:</Label>
+                <Textarea
+                  id="essay-answer"
+                  placeholder="Write your detailed answer here..."
+                  value={essayAnswer}
+                  onChange={(e) => setEssayAnswer(e.target.value)}
+                  className="min-h-[150px]"
+                />
+              </div>
+            )}
+
+            {/* Matching Questions */}
+            {currentQuestion.type === "MATCHING" && (
+              <MatchingQuestion
+                question=""
+                leftItems={currentQuestion.leftItems || []}
+                rightItems={currentQuestion.rightItems || []}
+                correctMatches={currentQuestion.correctMatches || {}}
+                onAnswerChange={(matches) => {
+                  const matchString = Object.entries(matches)
+                    .map(([right, left]) => `${left}-${right}`)
+                    .join(", ")
+                  setSelectedAnswer(matchString)
+                }}
+                userAnswer={
+                  selectedAnswer
+                    ? Object.fromEntries(
+                        selectedAnswer
+                          .split(", ")
+                          .map((pair) => {
+                            const [left, right] = pair.split("-")
+                            return [right, left]
+                          })
+                          .filter(([right, left]) => right && left),
+                      )
+                    : {}
+                }
+              />
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Navigation */}
+        <div className="flex justify-between">
+          <Button variant="outline" onClick={handlePreviousQuestion} disabled={currentQuestionIndex === 0}>
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Previous
+          </Button>
+
+          <Button onClick={handleAnswerSubmit}>
+            {isLastQuestion ? (
+              <>
                 <CheckCircle className="w-4 h-4 mr-2" />
                 Complete Quiz
-              </Button>
-            </div>
-          </div>
-        ) : (
-          /* Single Question Mode */
-          <>
-            {renderSingleQuestion(currentQuestion, currentQuestionIndex, true)}
-
-            {/* Navigation */}
-            <div className="flex justify-between">
-              <Button variant="outline" onClick={handlePreviousQuestion} disabled={currentQuestionIndex === 0}>
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Previous
-              </Button>
-
-              <Button onClick={handleAnswerSubmit}>
-                {isLastQuestion ? (
-                  <>
-                    <CheckCircle className="w-4 h-4 mr-2" />
-                    Complete Quiz
-                  </>
-                ) : (
-                  <>
-                    Next
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </>
-                )}
-              </Button>
-            </div>
-          </>
-        )}
+              </>
+            ) : (
+              <>
+                Next
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </>
+            )}
+          </Button>
+        </div>
       </div>
     </div>
   )
